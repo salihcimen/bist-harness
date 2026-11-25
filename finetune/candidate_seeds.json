@@ -1,0 +1,496 @@
+{
+ "scanned": 1600,
+ "hits": {
+  "FUNDAMENTAL_IMPROVEMENT_CANDIDATE": 39,
+  "POTENTIAL_CATCH_UP_CANDIDATE": 1
+ },
+ "seeds": [
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 30,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 50,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [],
+   "i": 67,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [],
+   "i": 107,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 126,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [],
+   "i": 143,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 302,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 442,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 722,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 730,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [],
+   "i": 803,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 850,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 866,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 878,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 962,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [],
+   "i": 975,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [],
+   "i": 1091,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 1158,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 1198,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [
+    "template"
+   ],
+   "i": 134,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [
+    "ticker"
+   ],
+   "i": 299,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [
+    "template"
+   ],
+   "i": 334,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [
+    "template"
+   ],
+   "i": 494,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [
+    "template"
+   ],
+   "i": 519,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S1",
+   "lang": "en",
+   "feats": [],
+   "i": 1440,
+   "action": "POTENTIAL_CATCH_UP_CANDIDATE"
+  }
+ ],
+ "all_hits": [
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 30,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 50,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [],
+   "i": 67,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [],
+   "i": 107,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 126,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [
+    "template"
+   ],
+   "i": 134,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [],
+   "i": 143,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [
+    "ticker"
+   ],
+   "i": 299,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 302,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [
+    "template"
+   ],
+   "i": 334,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 442,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [
+    "template"
+   ],
+   "i": 494,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [
+    "template"
+   ],
+   "i": 519,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [
+    "ticker"
+   ],
+   "i": 539,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [
+    "ticker"
+   ],
+   "i": 699,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 722,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 730,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [],
+   "i": 803,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 850,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 866,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 878,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 962,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [],
+   "i": 975,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [
+    "template"
+   ],
+   "i": 1014,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [],
+   "i": 1091,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [
+    "ticker"
+   ],
+   "i": 1139,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 1158,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 1198,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 1222,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 1302,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [],
+   "i": 1303,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 1326,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [],
+   "i": 1335,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 1358,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [],
+   "i": 1391,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 1438,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S1",
+   "lang": "en",
+   "feats": [],
+   "i": 1440,
+   "action": "POTENTIAL_CATCH_UP_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 1466,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S5",
+   "lang": "tr",
+   "feats": [
+    "ticker"
+   ],
+   "i": 1499,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  },
+  {
+   "scenario": "S4",
+   "lang": "tr",
+   "feats": [],
+   "i": 1518,
+   "action": "FUNDAMENTAL_IMPROVEMENT_CANDIDATE"
+  }
+ ]
+}

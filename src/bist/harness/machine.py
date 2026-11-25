@@ -51,6 +51,7 @@ class Harness:
         self.decision: dict | None = None
         self.final: dict | None = None
         self.review_record: dict | None = None
+        self.history: list[tuple[str, str, dict]] = []  # (state, tool, caller params) of every call that reached the tool
         self.violations: list[dict] = []     # blocked tool calls / rejected outputs (metrics: invalid tool-call rate, unsupported conclusions)
         self._seq = 0
         self._tseq = 0
@@ -98,6 +99,7 @@ class Harness:
                                    f"'{tool}' is not available in state {self.state}; allowed here: {ALLOWED_TOOLS[self.state] or 'none'}", params)
         if tool not in REGISTRY:
             return self._violation(tool, "UNKNOWN_TOOL", f"'{tool}' is not a registered tool", params)
+        caller_params = dict(params)
         if tool == "build_evidence_bundle":
             params = {"analysis_id": self.id}
         a = params.get("as_of")
@@ -111,13 +113,31 @@ class Harness:
             except Exception:
                 pass
         env = session.run(self.id, tool, **params)
+        self.history.append((self.state, tool, caller_params))
         c = self.calls[-1]
+        if tool == "rank_sector_relative_strength" and env["status"] != "ERROR" and self.focus == "sector_catchup" and len(self.tickers) > 1:
+            self._main_to_laggard(env, c)
         self._seq += 1
         self.db.tool_call(self.id, self._seq, c["call_id"], self.state, tool, env.get("params") or params, env)
         if tool == "build_evidence_bundle" and env["status"] != "ERROR":
             self.evidence = env["data"]
             self.db.evidence(self.id, self.evidence["observed"])
         return env
+
+    def _main_to_laggard(self, env: dict, rec: dict) -> None:
+        """S1: 'which selected stock lagged most?' -- the model cannot know before ranking, so the harness makes the most lagging
+        selected ticker the main one (decisions are taken for tickers[0]) and says so in the tool result."""
+        rows = (env.get("data") or {}).get("ranking_lagging_first") or []
+        lag = next((m["ticker"] for m in rows if m.get("ticker") in self.tickers), None)
+        if not lag or lag == self.tickers[0]:
+            return
+        old = self.tickers[0]
+        self.tickers = [lag] + [t for t in self.tickers if t != lag]
+        # a harness annotation, kept apart from the tool's own status/warnings so replay still reproduces the tool result
+        w = {"code": "MAIN_TICKER_SET_TO_LAGGARD", "message": f"main ticker set to {lag} (most lagging selected ticker; was {old})"}
+        for e in {id(env): env, id(rec["envelope"]): rec["envelope"]}.values():
+            e.setdefault("harness_notes", []).append(w)
+        self.db.exec("UPDATE analyses SET tickers=? WHERE id=?", ",".join(self.tickers), self.id)
 
     def _violation(self, tool, code, msg, params=None) -> dict:
         env = _err(code, msg, tool, params)

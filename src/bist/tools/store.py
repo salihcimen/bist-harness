@@ -125,3 +125,22 @@ def fund_calendar() -> pd.DataFrame:
 
 def macro() -> pd.DataFrame:
     return _macro()
+
+
+TCMB_COLUMNS = ["date", "series", "value", "source", "publish_date"]
+
+
+def empty_tcmb() -> pd.DataFrame:
+    return pd.DataFrame({c: pd.Series(dtype="datetime64[ns]" if c in ("date", "publish_date") else "float64" if c == "value" else "object")
+                         for c in TCMB_COLUMNS})
+
+
+@lru_cache(maxsize=1)
+def _tcmb() -> pd.DataFrame:
+    """TCMB EVDS series (python -m bist.fetch_evds); empty frame when the file was never built."""
+    f = PROCESSED / "macro_tcmb.parquet"
+    return pd.read_parquet(f) if f.exists() else empty_tcmb()
+
+
+def tcmb() -> pd.DataFrame:
+    return _tcmb()

@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ValidationError
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 REGISTRY: dict[str, dict] = {}
 
 

@@ -19,7 +19,7 @@ from scipy import stats
 
 from .paths import ROOT
 from .tools import REGISTRY, store
-from .tools.events import HORIZONS, apply_cooldown, event_flags, EVENT_TYPES, forward_returns
+from .tools.events import HORIZONS, apply_cooldown, event_flags, EVENT_TYPES, V10_TYPES, forward_returns
 from .tools.fundamentals import era
 from .tools.indicators import indicator_frame
 
@@ -191,7 +191,7 @@ def s3_reversals() -> None:
     xc = ib["close"]
     bull_regime = (xc > xc.rolling(200).mean()).rename("bull")
     recs, base = [], []
-    bullish = [k for k, v in EVENT_TYPES.items() if v[0] == "bullish"]
+    bullish = [k for k in V10_TYPES if EVENT_TYPES[k][0] == "bullish"]  # frozen S3 event set (touch events added in v1.1 excluded)
     for tk in store.tickers():
         b = store.stock_bars(tk, asof)
         f = indicator_frame(b)

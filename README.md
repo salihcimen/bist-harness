@@ -2,7 +2,7 @@
 
 Educational project: 30 BIST stocks, deterministic analysis tools (frozen schema v1.0), a stateful harness
 (17 states, quality gate, backtest, risk gate, human review, SQLite decision log, replay), an MCP server,
-and a planned QLoRA fine-tune of a small local LLM that calls the tools and explains only from tool output.
+and a planned QLoRA fine-tune of a small local LLM (Qwen3-4B-Instruct-2507, served via Ollama) that calls the tools and explains only from tool output.
 Nothing here is investment advice; no tool creates orders.
 
 - `src/bist/tools/` deterministic MCP tools + envelope/provenance

@@ -29,6 +29,16 @@ def _last(calls: list[dict], tool: str) -> dict | None:
     return None
 
 
+def _last_for(calls: list[dict], tool: str, ticker: str) -> dict | None:
+    """Last call of `tool` about `ticker` (results without a ticker field count for any ticker)."""
+    for c in reversed(calls):
+        if c["tool"] == tool:
+            t = (c["envelope"].get("data") or {}).get("ticker")
+            if t is None or t == ticker:
+                return c["envelope"]
+    return None
+
+
 def _codes(env: dict | None) -> set[str]:
     return {w["code"] for w in (env or {}).get("warnings", [])}
 
@@ -64,6 +74,11 @@ def backtest_view(calls: list[dict]) -> dict | None:
             "excess_vs_xu100": s.get("mean_excess_vs_xu100"), "max_drawdown": p.get("max_drawdown"), "sharpe": p.get("sharpe_annualized_rf0")}
 
 
+# Errors caused by the caller's parameters (not by the data): a later successful call of the same tool recovers them.
+MODEL_INPUT_ERRORS = {"INVALID_PARAMS", "MISSING_PARAM", "INVALID_DATE_RANGE", "INVALID_PERIOD", "UNKNOWN_METRIC", "UNKNOWN_EVENT_TYPE",
+                      "UNKNOWN_SECTOR", "UNKNOWN_TICKER", "TOOL_NOT_ALLOWED_IN_STATE", "TICKER_NOT_IN_SELECTION", "AS_OF_AFTER_ANALYSIS_DATE"}
+
+
 def risk_gate(calls: list[dict], require_backtest: bool = True) -> dict:
     q = quality_verdict(calls)
     reasons: list[str] = []
@@ -92,16 +107,35 @@ def risk_gate(calls: list[dict], require_backtest: bool = True) -> dict:
                     bump("PASS_WITH_WARNINGS"); reasons.append(f)
             if bt.get("max_drawdown") is not None and bt["max_drawdown"] < -MAX_DRAWDOWN_WARN:
                 bump("PASS_WITH_WARNINGS"); reasons.append(f"HIGH_DRAWDOWN({bt['max_drawdown'] * 100:.0f}%)")
-        if any(c["envelope"]["status"] == "ERROR" and c["tool"] not in ("get_news_events", "get_speech_features", "run_backtest") for c in calls):
-            bump("INVESTIGATE"); reasons.append("TOOL_ERROR")
+        succeeded = {c["tool"] for c in calls if _ok(c["envelope"])}
+        for c in calls:
+            env = c["envelope"]
+            if env["status"] != "ERROR" or c["tool"] in ("get_news_events", "get_speech_features", "run_backtest"):
+                continue
+            if (env.get("error") or {}).get("code") in MODEL_INPUT_ERRORS:
+                if c["tool"] not in succeeded:   # the agent never got a valid call through: an analysis step is missing, data is fine
+                    bump("PASS_WITH_WARNINGS"); reasons.append("TOOL_CALL_INVALID")
+            else:
+                bump("INVESTIGATE"); reasons.append("TOOL_ERROR")
     return {"verdict": verdict, "reasons": sorted(set(reasons)), "quality": q, "backtest": bt}
 
 
 # ------------------------------------------------------------------ signals
+CATCHUP_MIN_N = 10          # POTENTIAL_CATCH_UP_CANDIDATE needs >= this many completed 10-day windows of similar past lags
+CATCHUP_MIN_NARROWED = 0.5  # ... and the gap must have narrowed in more than this share of them
+
+
+def catchup_history_ok(env: dict | None) -> bool:
+    if not env or not _ok(env):
+        return False
+    h = (env["data"].get("by_horizon") or {}).get("h10") or {}
+    return (h.get("n") or 0) >= CATCHUP_MIN_N and (h.get("narrowed_rate") or 0) > CATCHUP_MIN_NARROWED
+
+
 def signals(calls: list[dict], ticker: str, as_of: str | None) -> dict:
     s = {"fund": {"present": False, "partial": False, "deterioration": False}, "reversal": {"present": False, "partial": False},
          "catchup": {"present": False, "partial": False}, "pattern": {"present": False, "market_wide": False, "tested": False}}
-    fc = _last(calls, "calculate_fundamental_change")
+    fc = _last_for(calls, "calculate_fundamental_change", ticker)
     if fc and _ok(fc) and not (_codes(fc) & {"LATE_FILING", "STALE_FUNDAMENTALS"}):
         d = fc["data"]
         rc = d["ratio_changes"]
@@ -118,7 +152,7 @@ def signals(calls: list[dict], ticker: str, as_of: str | None) -> dict:
             import pandas as pd
             fresh = (pd.Timestamp(as_of) - pd.Timestamp(eff)).days <= FRESH_DAYS
         s["fund"].update(present=bool(up and confirm >= 1 and fresh), partial=bool(up and not (confirm >= 1 and fresh)), deterioration=bool(down))
-    rv = _last(calls, "detect_reversal_events")
+    rv = _last_for(calls, "detect_reversal_events", ticker)
     if rv and _ok(rv):
         d = rv["data"]
         bull = [e for e in d["recent_events"] if e["direction"] == "bullish"]
@@ -131,7 +165,7 @@ def signals(calls: list[dict], ticker: str, as_of: str | None) -> dict:
             s["reversal"].update(present=True, history_ok=good)
         elif d["recent_events"]:
             s["reversal"]["partial"] = True
-    ind = _last(calls, "calculate_indicators")
+    ind = _last_for(calls, "calculate_indicators", ticker)
     if ind and _ok(ind) and not s["reversal"]["present"] and ind["data"]["states"].get("rsi_zone") == "oversold":
         s["reversal"]["partial"] = True
     sec = _last(calls, "rank_sector_relative_strength")
@@ -139,7 +173,9 @@ def signals(calls: list[dict], ticker: str, as_of: str | None) -> dict:
         d = sec["data"]
         me = next((m for m in d["ranking_lagging_first"] if m["ticker"] == ticker), None)
         if me and me["lag_rank"] <= 2:
-            s["catchup"].update(present=bool(d["sector_strong"]), partial=not d["sector_strong"])
+            hist_ok = catchup_history_ok(_last_for(calls, "test_catch_up_history", ticker))
+            present = bool(d["sector_strong"]) and hist_ok
+            s["catchup"].update(present=present, partial=not present, history_ok=hist_ok)
     for c in calls:
         if c["tool"] == "test_weekday_pattern" and _ok(c["envelope"]):
             d = c["envelope"]["data"]
@@ -208,6 +244,8 @@ def decide(calls: list[dict], ticker: str, focus: str, as_of: str | None, gate: 
 
 
 # ------------------------------------------------------------------ explanation + validation
+MAX_EVIDENCE_LINES = 9  # reference explanation: committed facts quoted (plus up to MAX_GAP_LINES data-gap notes)
+MAX_GAP_LINES = 2
 DISCLAIMER = "Historical evidence only; educational analytical state, not investment advice and not a trade instruction."
 _NUM = re.compile(r"(?<![\w.])[-+−]?\d+(?:[.,]\d+)?")
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
@@ -238,12 +276,15 @@ def build_explanation(action: str, bundle: dict, gate: dict, rationale: str = ""
     """Reference explanation: cites committed evidence ids with the tool's own statements; quotes nothing else."""
     obs = {it["id"]: it for it in bundle["observed"]}
     committed = [obs[i] for i in bundle["committed_ids"]]
-    order = ["fundamental_change", "fundamental", "reversal", "reversal_history", "sector", "pattern", "technical", "backtest", "valuation", "macro", "macro_gap", "quality"]
+    order = ["fundamental_change", "fundamental", "disclosure_summary", "catchup_history", "macro_sensitivity", "reversal_condition", "reversal_history",
+             "reversal", "sector", "pattern", "pattern_stats", "disclosure", "technical", "backtest", "valuation", "macro", "macro_gap", "quality"]
+    gaps = [it for it in committed if it["kind"] == "data_gap"][:MAX_GAP_LINES]
+    committed = [it for it in committed if it["kind"] != "data_gap"]
     committed.sort(key=lambda it: order.index(it["kind"]) if it["kind"] in order else 99)
     lines = [f"Educational analytical state: {action}."]
-    if committed:
+    if committed or gaps:
         lines.append("Evidence used:")
-        lines += [f"[{it['id']}] {it['statement']}" for it in committed[:7]]
+        lines += [f"[{it['id']}] {it['statement']}" for it in committed[:MAX_EVIDENCE_LINES] + gaps]
     else:
         lines.append("No evidence was committed for this conclusion.")
     kind = {it["id"]: it["kind"] for it in bundle["observed"]}

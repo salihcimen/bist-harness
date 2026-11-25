@@ -103,7 +103,8 @@ def check_data_quality(p: CheckQualityParams):
                 issues.append(_issue("investigate", "PEER_GROUP_TOO_SMALL", t, f"peer group {g} has {n} member(s); sector-relative analysis is not meaningful"))
     m = store.macro()
     latest_macro = m[m["date"] < as_of]["date"].max()
-    issues.append(_issue("warning", "MACRO_INCOMPLETE", "macro", f"missing: {', '.join(fnd.MISSING_MACRO)}"))
+    if store.tcmb().empty:
+        issues.append(_issue("warning", "MACRO_INCOMPLETE", "macro", f"missing: {', '.join(fnd.TCMB_SERIES)}"))
     if pd.notna(latest_macro) and (as_of - latest_macro).days > 7:
         issues.append(_issue("investigate", "STALE_MACRO", "macro", f"latest macro observation {latest_macro.date()}"))
     for e in p.evidence_dates:

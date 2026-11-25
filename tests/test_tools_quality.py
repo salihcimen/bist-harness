@@ -12,7 +12,11 @@ def codes(r):
 
 def test_clean_case_is_pass_with_warnings_only_because_macro_incomplete():
     r = check_data_quality(tickers=["THYAO"], as_of="2023-05-10", analysis_type="technical_reversal")
-    assert r["data"]["verdict"] == "PASS_WITH_WARNINGS" and "MACRO_INCOMPLETE" in codes(r)
+    from bist.tools import store
+    if store.tcmb().empty:  # v1.1: with TCMB data built the clean case is a plain PASS
+        assert r["data"]["verdict"] == "PASS_WITH_WARNINGS" and "MACRO_INCOMPLETE" in codes(r)
+    else:
+        assert r["data"]["verdict"] == "PASS" and "MACRO_INCOMPLETE" not in codes(r)
     assert r["data"]["may_issue_candidate_signal"] is True
 
 

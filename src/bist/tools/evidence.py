@@ -10,6 +10,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from . import session
+from .common import SMALL_N
 from .envelope import tool, warn
 
 BLOCKING = {"ANALYSIS_UNSAFE", "HARD_BLOCK"}
@@ -56,6 +57,8 @@ def _reversal(c):
         out.append(_item("reversal", c, f"{t}: no reversal event in the recent window.", ticker=t))
     for e in ev:
         out.append(_item("reversal", c, f"{t}: {e['direction']} reversal event '{e['type']}' on {e['date']} (close {_n(e['close'])}).", {"type": e["type"], "date": e["date"]}, ticker=t))
+    if d.get("window"):
+        return out + _reversal_window(c, d, t)
     seen = {e["type"] for e in ev}
     for ty in seen:
         h = d["history_summary"][ty]["h5"]
@@ -65,11 +68,101 @@ def _reversal(c):
     return out
 
 
+def _small(n):
+    return None if n >= SMALL_N else f"SMALL_SAMPLE (fewer than {SMALL_N} completed observations)"
+
+
+def _gaps(c, what):
+    """One data_gap item per call for INCOMPLETE_FORWARD_WINDOW: a fact the answer must state (windows ending after the analysis date)."""
+    msgs = [w["message"].split("(")[-1].rstrip(")") for w in c["envelope"].get("warnings", []) if w["code"] == "INCOMPLETE_FORWARD_WINDOW"]
+    if not msgs:
+        return []
+    return [_item("data_gap", c, f"{what}: events whose forward window ends after the analysis date were excluded ({'; '.join(msgs[:4])}).", commit=True)]
+
+
+def _hstats(s):
+    return ", ".join(f"{h}d mean {_p(s[f'h{h}']['mean'])}" for h in (1, 3, 5, 10))
+
+
+def _reversal_window(c, d, t):
+    w0, w1 = d["window"]
+    out = []
+    for ty, s in d["history_summary"].items():
+        h5 = s["h5"]
+        out.append(_item("reversal_history", c, f"{t}: '{ty}' occurred {s['count']} times between {w0} and {w1}; forward returns {_hstats(s)}; within 5 days the price rose in {_p(h5['hit_rate'], 0, False)} of cases "
+                                                 f"(median {_p(h5['median'])}, mean excess vs XU100 {_p(h5['mean_excess_vs_xu100'])}, n={h5['n']}, {h5['n_excluded_incomplete']} with incomplete windows excluded).",
+                         {"type": ty, "n": h5["n"]}, commit=h5["n"] >= SMALL_N, reason=_small(h5["n"]), ticker=t))
+        for cs in s.get("by_condition_set", []):
+            name = " & ".join(cs["conditions"])
+            h = cs["h5"]
+            if cs["count"] == 0:
+                out.append(_item("reversal_condition", c, f"{t}: no '{ty}' event between {w0} and {w1} occurred together with [{name}].", {"conditions": cs["conditions"]}, ticker=t))
+                continue
+            out.append(_item("reversal_condition", c, f"{t}: '{ty}' with [{name}]: {cs['count']} events; forward returns {_hstats(cs)}; within 5 days the price rose in {_p(h['hit_rate'], 0, False)} of cases (n={h['n']}).",
+                             {"conditions": cs["conditions"], "n": h["n"]}, commit=h["n"] >= SMALL_N, reason=_small(h["n"]), ticker=t))
+    return out + _gaps(c, f"{t} reversal statistics")
+
+
+def _catchup(c):
+    d = c["envelope"]["data"]
+    t = d["ticker"]
+    if d.get("by_horizon") is None:
+        return [_item("catchup_history", c, f"{t}: catch-up history not computed (fewer than 2 peers).", commit=False, reason="PEER_GROUP_TOO_SMALL", ticker=t)]
+    w0, w1 = d["window"]
+    out = [_item("sector", c, f"{t}: current {d['lookback_days']}-day return vs the peer median ({', '.join(d['peers'])}) is {_p(d['current_lag_gap'])}.", {"lag_gap": d["current_lag_gap"]}, ticker=t)]
+    for k, h in d["by_horizon"].items():
+        out.append(_item("catchup_history", c, f"{t}: {d['n_events']} past lags of at least {_p(d['min_lag_gap_used'], 1, False)} behind the peer median between {w0} and {w1}; within {k[1:]} days the gap narrowed in "
+                                               f"{_p(h['narrowed_rate'], 0, False)} and fully closed in {_p(h['closed_rate'], 0, False)} of cases (false positives {_p(h['false_positive_rate'], 0, False)}, "
+                                               f"mean relative return {_p(h['mean_rel'])}, n={h['n']}, {h['n_excluded_incomplete']} incomplete windows excluded).",
+                         {"horizon": k, "n": h["n"]}, commit=h["n"] >= SMALL_N, reason=_small(h["n"]), ticker=t))
+    return out + _gaps(c, f"{t} catch-up history")
+
+
+def _disclosures(c):
+    d = c["envelope"]["data"]
+    t, out = d["ticker"], []
+    hz = [f"{h}d" for h in d["horizons"]]
+    for r in d["rows"]:
+        mets = "; ".join(f"{m} {_n(r['values'][m], 3)} (change vs previous quarter {_n(r['change_vs_prev_quarter'][m], 3)})" for m in d["metrics"])
+        rets = ", ".join(f"{k} {_p(r['returns'][k]['abnormal_vs_xu100'])} vs XU100 / {_p(r['returns'][k]['abnormal_vs_sector'])} vs sector" if r["returns"][k]["complete"]
+                         else f"{k} incomplete (window ends after the analysis date)" for k in hz)
+        imp = {True: "improving", False: "deteriorating", None: "mixed/undetermined"}[r["improving"]]
+        out.append(_item("disclosure", c, f"{t} {r['period']} first published on KAP {str(r['first_published'])[:10]} (tradable {r['effective_trade_date']}): {mets}; {imp}; abnormal returns {rets}.",
+                         {"period": r["period"]}, ticker=t))
+    for k in hz:
+        s = d["summary"][k]
+        n = s["improving"]["n"] + s["deteriorating"]["n"]
+        out.append(_item("disclosure_summary", c, f"{t}: mean {k} abnormal return vs XU100 after improving quarters {_p(s['improving']['mean_abnormal_vs_xu100'])} (n={s['improving']['n']}) vs deteriorating quarters "
+                                                  f"{_p(s['deteriorating']['mean_abnormal_vs_xu100'])} (n={s['deteriorating']['n']}); association only, no causal claim.",
+                         {"horizon": k, "n": n}, commit=n >= SMALL_N, reason=_small(n), ticker=t))
+    inc = [f"{r['period']} {k}" for r in d["rows"] for k in hz if not r["returns"][k]["complete"]]
+    if inc:
+        out.append(_item("data_gap", c, f"{t}: price-reaction window not complete as of the analysis date for {', '.join(inc)}; no later prices were used.", ticker=t))
+    if "TMS29_RESTATED_VALUES" in _codes(c["envelope"]):
+        out.append(_item("data_gap", c, f"{t}: fundamentals from FY2022 on are restated (TMS 29), not first-published values; changes are compared within the same era only.", ticker=t))
+    return out
+
+
+def _macro_sens(c):
+    d = c["envelope"]["data"]
+    t, f = d["ticker"], d["factor"]
+    w0, w1 = d["window"]
+    up, dn = d["factor_up"], d["factor_down"]
+    scope = {True: "differs from the market (stock-specific)", False: "is similar to the market (not stock-specific)", None: "cannot be compared with the market"}[d["stock_specific"]]
+    stmt = (f"{t} vs {f} ({d['frequency']}, {d['n_periods']} periods, {w0} to {w1}): correlation {_n(d['correlation'])}, beta {_n(d['beta'])} (t {_n(d['beta_t_stat'])}); "
+            f"when {f} rose ({up['n']} periods) {t} averaged {_p(up['mean_stock_return'])} ({_p(up['mean_excess_vs_xu100'])} vs XU100), when it fell ({dn['n']} periods) {_p(dn['mean_stock_return'])}; "
+            f"XU100 correlation {_n(d['xu100']['correlation'])}, so the relationship {scope}; yearly correlation sign stable: {d['sign_stable']}. Correlation is not causation; no forecast.")
+    ok = d["n_periods"] >= SMALL_N and d["sign_stable"] is not False
+    reason = None if ok else ("UNSTABLE_RELATIONSHIP" if d["sign_stable"] is False else _small(d["n_periods"]))
+    return [_item("macro_sensitivity", c, stmt, {"factor": f, "n": d["n_periods"]}, commit=ok, reason=reason, ticker=t)]
+
+
 def _sector(c):
     d = c["envelope"]["data"]
+    label = f"Peer group ({', '.join(m['ticker'] for m in d.get('ranking_lagging_first', d.get('members', [])))})" if d.get("custom_group") else f"Sector {d['sector']}"
     if not d.get("ranking_valid"):
-        return [_item("sector", c, f"Sector {d['sector']}: peer group too small for a relative ranking.", commit=False, reason="PEER_GROUP_TOO_SMALL")]
-    out = [_item("sector", c, f"Sector {d['sector']} ({d['n_members']} stocks): median {d['horizon_days']}-day return {_p(d['sector_median_return'])} vs XU100 {_p(d['xu100_return'])}; sector is {'strong' if d['sector_strong'] else 'not strong'} relative to the index.", {"sector_strong": d["sector_strong"]})]
+        return [_item("sector", c, f"{label}: peer group too small for a relative ranking.", commit=False, reason="PEER_GROUP_TOO_SMALL")]
+    out = [_item("sector", c, f"{label} ({d['n_members']} stocks): median {d['horizon_days']}-day return {_p(d['sector_median_return'])} vs XU100 {_p(d['xu100_return'])}; sector is {'strong' if d['sector_strong'] else 'not strong'} relative to the index.", {"sector_strong": d["sector_strong"]})]
     for m in d["ranking_lagging_first"][:3]:
         out.append(_item("sector", c, f"{m['ticker']}: {d['horizon_days']}-day return {_p(m['return'])}, {_p(m['excess_vs_sector_median'])} vs sector median (lag score {_n(m['lag_score'])}, lag rank {m['lag_rank']} of {d['n_members']}).", {"lag_rank": m["lag_rank"]}, ticker=m["ticker"]))
     return out
@@ -78,12 +171,32 @@ def _sector(c):
 def _pattern(c):
     d = c["envelope"]["data"]
     name = d["pattern"] + (f" {d['weekday']}" if d.get("weekday") else "")
+    if d.get("down_days"):
+        name = f"{'-'.join(d['down_days'])} down, then {'-'.join(d['up_days'])} return"
     stmt = (f"{d['ticker']}: pattern '{name}' occurred {d['occurrences']} times; mean {_p(d['mean'], 2)} vs baseline {_p(d['baseline_mean'], 2)}, hit rate {_p(d['hit_rate'], 0, False)}; "
             f"p-value after multiple-testing correction {_n(d['p_value_bonferroni'], 3)}; out-of-sample same sign: {d['oos_same_sign']}; years with same sign {d['years_same_sign_as_overall']}/{d['years_tested']}; "
             f"XU100 shows the same effect: {d['market_wide_effect']}.")
+    verdict = ("stock-specific, significant and stable" if d["stock_specific_evidence"] else
+               "market-wide effect, not stock-specific" if d["market_wide_effect"] else "not significant or not stable: treat as noise")
+    stmt += f" Verdict: {verdict}."
     ok = bool(d["stock_specific_evidence"])
     reason = None if ok else ("MARKET_WIDE_EFFECT (not stock-specific)" if d["market_wide_effect"] else "NOT_SIGNIFICANT_OR_UNSTABLE")
-    return [_item("pattern", c, stmt, {"p_adj": d["p_value_bonferroni"]}, commit=ok, reason=reason, ticker=d["ticker"])]
+    out = [_item("pattern", c, stmt, {"p_adj": d["p_value_bonferroni"]}, commit=ok, reason=reason, ticker=d["ticker"])]
+    if not ok:  # the rejection itself must be quotable: descriptive facts + verdict, citable, never support for a candidate
+        out.append(_item("pattern_stats", c, f"{d['ticker']}: pattern '{name}' descriptive statistics: {d['occurrences']} occurrences, mean {_p(d['mean'], 2)}, "
+                                             f"median {_p(d.get('median'), 2)} vs unconditional {_p(d['baseline_mean'], 2)}, hit rate {_p(d['hit_rate'], 0, False)}. Verdict: {verdict}.",
+                         {"verdict": verdict}, ticker=d["ticker"]))
+    for key, lab in (("in_sample", "in-sample"), ("out_of_sample", "out-of-sample")):
+        s = d.get(key)
+        if not s:
+            continue
+        net = f", net of {_n(d['cost_bps_round_trip'], 0)} bps round-trip costs {_p(s['net_mean_after_cost'], 2)}" if s.get("net_mean_after_cost") is not None else ""
+        out.append(_item("pattern", c, f"{d['ticker']}: pattern '{name}' {lab} {s['period'][0]} to {s['period'][1]}: {s['occurrences']} occurrences, mean {_p(s['mean'], 2)}, median {_p(s['median'], 2)} vs unconditional {_p(s['baseline_mean'], 2)}, "
+                                    f"hit rate {_p(s['hit_rate'], 0, False)}{net}; p-value after multiple-testing correction {_n(s['p_value_bonferroni'], 3)}; overall significant and stable: {d['significant_and_stable']}.",
+                         {"segment": key, "n": s["occurrences"]}, ticker=d["ticker"]))  # descriptive segment facts are citable; the verdict item above carries significance
+    if not d.get("in_sample") and d.get("net_mean_after_cost") is not None:
+        out.append(_item("pattern", c, f"{d['ticker']}: pattern '{name}' mean net of {_n(d['cost_bps_round_trip'], 0)} bps round-trip costs {_p(d['net_mean_after_cost'], 2)}.", ticker=d["ticker"]))
+    return out
 
 
 def _fundamentals(c):
@@ -138,8 +251,24 @@ def _macro(c):
     v = d.get("vix")
     if v:
         out.append(_item("macro", c, f"VIX {_n(v['value'], 1)} ({c['envelope']['data']['regime']['vix_regime']} regime); DXY {_n((d.get('dxy') or {}).get('value'), 1)}; Brent {_n((d.get('brent') or {}).get('value'), 1)}.", {"vix": v["value"]}))
+    pr, cpi, ut = d.get("policy_rate"), d.get("cpi_yoy"), d.get("usdtry_tcmb")
+    if pr or cpi or ut:
+        parts = []
+        if ut:
+            parts.append(f"CBRT USD/TRY {_n(ut['value'], 4)} (observed {ut['observation_date']})")
+        if pr:
+            parts.append(f"CBRT weighted average funding cost (policy-rate proxy) {_n(pr['value'])}% (observed {pr['observation_date']})")
+        if cpi:
+            parts.append(f"CPI inflation {_n(cpi['value'])}% y/y (month ending {cpi['observation_date']})")
+        out.append(_item("macro", c, "TCMB: " + "; ".join(parts) + ".", {"policy_rate": (pr or {}).get("value")}))
+    for name in ("usdtry", "usdtry_tcmb", "policy_rate", "cpi_yoy"):
+        r = (d.get(name) or {}).get("range")
+        if r:
+            out.append(_item("macro", c, f"{name} from {r['first_date']} to {r['last_date']}: {_n(r['start_value'], 4)} -> {_n(r['end_value'], 4)} (change {_n(r['change'], 4)}, {_p(r['change_pct'])}), min {_n(r['min'], 4)}, max {_n(r['max'], 4)}, {r['n_obs']} observations.",
+                             {"series": name}))
     miss = ", ".join(c["envelope"]["data"]["unavailable_series"])
-    out.append(_item("macro_gap", c, f"Not available: {miss}. No statement about Turkish policy rates or inflation can be made.", commit=True))
+    if miss:
+        out.append(_item("macro_gap", c, f"Not available: {miss}. No statement about Turkish policy rates or inflation can be made.", commit=True))
     return out
 
 
@@ -162,7 +291,8 @@ def _quality(c):
     return [_item("quality", c, f"Data-quality gate verdict: {d['verdict']} ({n['warning']} warnings, {n['investigate']} investigate, {n['unsafe']} unsafe, {n['block']} block){'; ' + ', '.join(top) if top else ''}.", {"verdict": d["verdict"]})]
 
 
-EXTRACTORS = {"calculate_indicators": _indicators, "detect_reversal_events": _reversal, "rank_sector_relative_strength": _sector,
+EXTRACTORS = {"test_catch_up_history": _catchup, "analyze_disclosure_reactions": _disclosures, "analyze_macro_sensitivity": _macro_sens,
+              "calculate_indicators": _indicators, "detect_reversal_events": _reversal, "rank_sector_relative_strength": _sector,
               "test_weekday_pattern": _pattern, "get_fundamental_metrics": _fundamentals, "calculate_fundamental_change": _fchange,
               "get_macro_context": _macro, "run_backtest": _backtest, "check_data_quality": _quality}
 

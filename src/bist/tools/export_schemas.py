@@ -14,8 +14,8 @@ from . import REGISTRY, SCHEMA_VERSION  # noqa: F401  (import registers all tool
 
 OUT = ROOT / "mcp" / "tool_schemas.json"
 ORDER = ["get_stock_history", "get_index_history", "calculate_indicators", "detect_reversal_events", "find_support_resistance",
-         "rank_sector_relative_strength", "test_weekday_pattern", "get_fundamental_metrics", "calculate_fundamental_change",
-         "get_macro_context", "get_news_events", "get_speech_features", "generate_strategy_variants", "run_backtest",
+         "rank_sector_relative_strength", "test_catch_up_history", "test_weekday_pattern", "get_fundamental_metrics", "calculate_fundamental_change", "analyze_disclosure_reactions",
+         "get_macro_context", "analyze_macro_sensitivity", "get_news_events", "get_speech_features", "generate_strategy_variants", "run_backtest",
          "check_data_quality", "build_evidence_bundle"]
 
 ENVELOPE = {

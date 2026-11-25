@@ -8,12 +8,14 @@ growth is therefore withheld there and only same-period ratios are reported.
 from __future__ import annotations
 
 from datetime import date
+from typing import Literal
 
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field
 
 from . import store
+from .common import resolve_range
 from .envelope import ToolError, tool, warn
 
 COLS = {
@@ -171,33 +173,72 @@ def calculate_fundamental_change(p: FundamentalChangeParams):
 # ------------------------------------------------------------------ macro
 PCT_SERIES = ["usdtry", "eurtry", "dxy", "brent", "gold", "sp500"]
 LEVEL_SERIES = ["vix", "us10y", "fed_funds_effective", "fed_target_upper", "fed_target_lower"]
-MISSING_MACRO = ["tcmb_policy_rate", "tuik_cpi_inflation"]
+TCMB_SERIES = ["usdtry_tcmb", "policy_rate", "cpi_yoy"]
+TCMB_PCT = {"usdtry_tcmb"}
+MacroSeries = Literal["usdtry", "eurtry", "dxy", "brent", "gold", "sp500", "vix", "us10y", "fed_funds_effective", "fed_target_upper",
+                      "fed_target_lower", "usdtry_tcmb", "policy_rate", "cpi_yoy"]
 
 
 class MacroContextParams(BaseModel):
-    as_of: date | None = Field(default=None, description="Analysis date. Values are taken from the last observation STRICTLY BEFORE this date (global closes happen after the BIST close).")
+    as_of: date | None = Field(default=None, description="Analysis date. Values are taken from the last observation STRICTLY BEFORE this date (global closes happen after the BIST close; monthly CPI only after its publication date).")
     lookback_days: int = Field(default=20, ge=5, le=250, description="Window (calendar-day observations, ~trading days) for the change figures.")
+    series: list[MacroSeries] | None = Field(default=None, min_length=1, max_length=14, description="Subset of series (default: all). TCMB: usdtry_tcmb (CBRT USD/TRY), policy_rate (CBRT funding rate), cpi_yoy (CPI y/y %).")
+    start: date | None = Field(default=None, description="Optional period start: adds per-series start/end value, change, min/max and observation count over [start, end].")
+    end: date | None = Field(default=None, description="Period end for the range figures (default and maximum: as_of).")
+
+
+def series_obs(name: str, as_of: pd.Timestamp) -> pd.DataFrame:
+    """date,value of one macro series visible strictly before as_of (TCMB series: by publication date)."""
+    if name in TCMB_SERIES:
+        t = store.tcmb()
+        d = t[(t["series"] == name) & (t["publish_date"] < as_of)]
+    else:
+        m = store.macro()
+        d = m[(m["series"] == name) & (m["date"] < as_of)]
+    return d[["date", "value"]].sort_values("date").reset_index(drop=True)
+
+
+def _range(d: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> dict | None:
+    r = d[(d["date"] >= start) & (d["date"] <= end)]
+    if r.empty:
+        return None
+    a, b = float(r["value"].iloc[0]), float(r["value"].iloc[-1])
+    return {"start_value": a, "end_value": b, "change": b - a, "change_pct": b / a - 1 if a else None, "min": float(r["value"].min()),
+            "max": float(r["value"].max()), "n_obs": int(len(r)), "first_date": r["date"].iloc[0], "last_date": r["date"].iloc[-1]}
 
 
 @tool("get_macro_context", MacroContextParams,
-      "Market-based macro context at as_of (D-1 rule): USD/TRY, EUR/TRY, DXY, VIX, US 10Y, Fed funds and target range, Brent, gold, S&P 500 with changes; reports which macro series are NOT yet available (TCMB policy rate, TUIK CPI).")
+      "Macro context at as_of (D-1 rule): USD/TRY, EUR/TRY, DXY, VIX, US 10Y, Fed funds and target range, Brent, gold, S&P 500, and TCMB series (CBRT USD/TRY, policy-rate proxy, CPI y/y by publication date) with changes; optional [start, end] range statistics per series.")
 def get_macro_context(p: MacroContextParams):
     as_of, w = store.resolve_as_of(p.as_of)
-    m = store.macro()
     cutoff = as_of  # strictly before as_of
+    have_tcmb = not store.tcmb().empty
+    names = p.series or (PCT_SERIES + LEVEL_SERIES + (TCMB_SERIES if have_tcmb else []))
+    rng = None
+    if p.start is not None or p.end is not None:
+        rs, re_, wr = resolve_range(p.start, p.end, as_of, as_of - pd.DateOffset(years=3))
+        w += wr
+        rng = (rs, re_)
     out, last_obs = {}, []
-    for s in PCT_SERIES + LEVEL_SERIES:
-        d = m[(m["series"] == s) & (m["date"] < cutoff)].sort_values("date")
+    for s in names:
+        d = series_obs(s, cutoff)
         if d.empty:
             out[s] = None
             continue
         v = d["value"].to_numpy()
         n = p.lookback_days
+        pct = s in PCT_SERIES or s in TCMB_PCT
         row = {"value": float(v[-1]), "observation_date": d["date"].iloc[-1]}
-        if len(v) > n:
-            row[f"change_{n}d_pct" if s in PCT_SERIES else f"change_{n}d"] = float(v[-1] / v[-1 - n] - 1) if s in PCT_SERIES else float(v[-1] - v[-1 - n])
+        if s == "cpi_yoy":
+            row["unit"] = "percent y/y (monthly)"
+        elif len(v) > n:
+            row[f"change_{n}d_pct" if pct else f"change_{n}d"] = float(v[-1] / v[-1 - n] - 1) if pct else float(v[-1] - v[-1 - n])
+        if rng is not None:
+            row["range"] = _range(d, *rng)
         out[s] = row
-        last_obs.append(d["date"].iloc[-1])
+        if s != "cpi_yoy":
+            last_obs.append(d["date"].iloc[-1])
+    m = store.macro()
     fed = out.get("fed_target_upper")
     if fed:
         d = m[(m["series"] == "fed_target_upper") & (m["date"] < cutoff)].sort_values("date")
@@ -205,9 +246,14 @@ def get_macro_context(p: MacroContextParams):
         fed["last_change_date"] = chg["date"].iloc[-1] if len(chg) else None
     vix = out.get("vix")
     regime = {"vix_regime": None if not vix else ("low" if vix["value"] < 15 else "normal" if vix["value"] < 25 else "high")}
-    w.append(warn("MACRO_INCOMPLETE", f"Not yet available: {', '.join(MISSING_MACRO)} (TCMB EVDS key pending). Do not make statements about Turkish policy rates or inflation."))
+    missing = [] if have_tcmb else TCMB_SERIES
+    if missing:
+        w.append(warn("MACRO_INCOMPLETE", f"Not available: {', '.join(missing)} (TCMB EVDS data not built: python -m bist.fetch_evds). Do not make statements about Turkish policy rates or inflation."))
     if last_obs and (cutoff - max(last_obs)).days > 7:
         w.append(warn("STALE_MACRO", f"Latest macro observation is {max(last_obs).date()}, more than 7 days before as_of."))
-    data = {"series": out, "regime": regime, "unavailable_series": MISSING_MACRO,
-            "timing_rule": "each value is the last observation strictly before as_of (no same-day global close)"}
-    return data, w, {"as_of": as_of, "sources": ["macro_market_daily.parquet (Yahoo, NY Fed)"]}
+    data = {"series": out, "regime": regime, "unavailable_series": missing,
+            "timing_rule": "each value is the last observation strictly before as_of (no same-day global close); monthly CPI is visible only after its publication date (assumed 3rd business day of the next month)"}
+    if rng is not None:
+        data["range_window"] = list(rng)
+    src = ["macro_market_daily.parquet (Yahoo, NY Fed)"] + (["macro_tcmb.parquet (TCMB EVDS)"] if have_tcmb else [])
+    return data, w, {"as_of": as_of, "sources": src}

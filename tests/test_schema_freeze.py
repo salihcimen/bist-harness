@@ -12,12 +12,12 @@ from bist.tools.news import get_news_events, get_speech_features  # noqa: E402
 def test_frozen_schema_matches_live_tools():
     frozen = json.loads(OUT.read_text(encoding="utf-8"))
     live = build()
-    assert frozen["schema_version"] == SCHEMA_VERSION == "1.0"
+    assert frozen["schema_version"] == SCHEMA_VERSION == "1.1"
     assert frozen["schema_hash"] == live["schema_hash"], "tool schemas changed: bump SCHEMA_VERSION and re-export (this invalidates training data!)"
 
 
-def test_sixteen_tools_registered_in_declared_order():
-    assert set(REGISTRY) == set(ORDER) and len(ORDER) == 16
+def test_all_tools_registered_in_declared_order():
+    assert set(REGISTRY) == set(ORDER) and len(ORDER) == 19
 
 
 def test_every_tool_description_and_param_is_documented():

@@ -87,3 +87,83 @@ def test_render_is_compact(db):
     txt = render("get_fundamental_metrics", env)
     assert len(txt) < 900 and "AKBNK" in txt
     assert render("run_backtest", {"status": "ERROR", "error": {"code": "LAYER_UNAVAILABLE", "message": "m"}}).startswith("run_backtest: ERROR LAYER_UNAVAILABLE")
+
+
+# ------------------------------------------------------------- v2: conversation format, model-chosen focus/period
+class PlanningModel(FakeModel):
+    """Also chooses focus, analysis date and the question's period in SELECT_UNIVERSE, and passes start/end to range-aware tools."""
+
+    def __init__(self, sel=None, **kw):
+        super().__init__(**kw)
+        self.sel = sel or {}
+        self.requests: list[list[dict]] = []
+
+    def __call__(self, messages, tools=None, json_format=False):
+        self.requests.append([dict(m) for m in messages])
+        if "SELECT_UNIVERSE" in messages[-1]["content"] and not json_format:
+            return {"tool_calls": [{"function": {"name": "select_universe", "arguments": {"tickers": [self.ticker], **self.sel}}}]}
+        return super().__call__(messages, tools, json_format)
+
+
+def _check_pairing(msgs):
+    """Every assistant message with tool_calls is followed by exactly one tool message per call; no tool message is orphaned."""
+    i = 0
+    while i < len(msgs):
+        m = msgs[i]
+        if m["role"] == "tool":
+            raise AssertionError(f"orphan tool message at {i}")
+        if m["role"] == "assistant" and m.get("tool_calls"):
+            k = len(m["tool_calls"])
+            assert all(x["role"] == "tool" for x in msgs[i + 1:i + 1 + k]), i
+            assert all(x.get("tool_name") for x in msgs[i + 1:i + 1 + k]), i
+            i += 1 + k
+            continue
+        i += 1
+
+
+def test_conversation_keeps_assistant_tool_calls_before_results(db):
+    m = PlanningModel()
+    a = LLMAgent(m, db=db)
+    a.run("AKBNK bilanço sonrası?", focus="fundamental_reaction", human=("APPROVE", "ok"))
+    for req in m.requests:
+        _check_pairing(req)
+    _check_pairing(a.messages)
+    assert sum(1 for x in a.messages if x["role"] == "tool") >= 5
+
+
+def test_model_selects_focus_and_period(db):
+    sel = {"focus": "technical_reversal", "analysis_date": "2026-09-10", "period_start": "2024-01-01", "period_end": "2026-09-10"}
+    m = PlanningModel(sel=sel, ticker="ASELS", focus="technical_reversal")
+    a = LLMAgent(m, db=db)
+    h = a.run("ASELS alt Bollinger bandına kaç kez dokundu? Analiz tarihi 10.09.2026, dönem 01.01.2024 – 10.09.2026")
+    assert h.focus == "technical_reversal" and h.as_of == "2026-09-10"
+    assert a.selection["period_start"] == "2024-01-01"
+    assert any("2024-01-01" in x["content"] for x in a.messages if x["role"] == "user")
+    q = next(c for c in h.calls if c["tool"] == "check_data_quality")
+    assert q["envelope"]["data"]["analysis_type"] == "technical_reversal"
+
+
+def test_caller_focus_and_as_of_override_model(db):
+    m = PlanningModel(sel={"focus": "calendar_pattern", "analysis_date": "2026-01-05"})
+    h = LLMAgent(m, db=db).run("AKBNK?", as_of="2026-09-10", focus="fundamental_reaction", human=("APPROVE", "ok"))
+    assert h.focus == "fundamental_reaction" and h.as_of == "2026-09-10"
+
+
+def test_invalid_model_focus_falls_back_to_general(db):
+    h = LLMAgent(PlanningModel(sel={"focus": "moon"}), db=db).run("AKBNK?", human=("APPROVE", "ok"))
+    assert h.focus == "general"
+
+
+def test_request_context_is_compact(db):
+    """Earlier states' tool results are sent as their first line only; the final turn sees only the setup + committed evidence."""
+    m = PlanningModel()
+    a = LLMAgent(m, db=db)
+    a.run("AKBNK bilanço sonrası?", focus="fundamental_reaction", human=("APPROVE", "ok"))
+    full = sum(len(x["content"]) for x in a.messages)
+    for req in m.requests:
+        _check_pairing(req)
+        last_prompt = max(i for i, x in enumerate(req) if x["role"] == "user")
+        assert all(len(x["content"]) <= 240 for x in req[:last_prompt] if x["role"] == "tool")
+    final = [r for r in m.requests if "GENERATE_EXPLANATION" in r[-1]["content"]][0]
+    assert not any(x["role"] == "tool" and x["tool_name"] != "select_universe" for x in final)
+    assert max(sum(len(x["content"]) for x in r) for r in m.requests) < full

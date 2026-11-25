@@ -6,13 +6,14 @@ end date is <= as_of (otherwise null and excluded from the summary).
 from __future__ import annotations
 
 from datetime import date
-from typing import Literal
+from typing import Annotated, Literal
 
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field
 
 from . import store
+from .common import forward_window_stats, resolve_range
 from .envelope import tool, warn
 from .indicators import indicator_frame
 
@@ -32,7 +33,36 @@ EVENT_TYPES = {  # name -> (direction, description)
     "macd_cross_down": ("bearish", "MACD histogram turned negative"),
     "ichimoku_tk_cross_down": ("bearish", "Tenkan crossed below Kijun"),
     "ichimoku_cloud_breakdown": ("bearish", "close broke below the Ichimoku cloud"),
+    "bollinger_lower_touch": ("bullish", "low touched or pierced the lower Bollinger band"),
+    "bollinger_upper_touch": ("bearish", "high touched or pierced the upper Bollinger band"),
 }
+V10_TYPES = [k for k in EVENT_TYPES if not k.endswith("_touch")]  # default set; touch events only on explicit request
+ConditionName = Literal["rsi_oversold", "rsi_trough", "high_volume", "supertrend_bearish", "supertrend_bullish",
+                        "below_ichimoku_cloud", "above_ichimoku_cloud", "macd_hist_negative", "macd_hist_positive",
+                        "below_kama", "above_kama"]
+MAX_EVENTS = 300
+
+
+def condition_flags(f: pd.DataFrame) -> pd.DataFrame:
+    """Event-day conditions, each using bars <= t only. rsi_trough: RSI still falling and below 35 (a confirmed trough needs t+1)."""
+    c = f["close"]
+    top = f[["ich_span_a", "ich_span_b"]].max(axis=1, skipna=False)
+    bot = f[["ich_span_a", "ich_span_b"]].min(axis=1, skipna=False)
+    vol = f["volume"].astype(float)
+    vmiss = f["volume_missing"].astype(bool) if "volume_missing" in f else pd.Series(False, index=f.index)
+    out = pd.DataFrame(index=f.index)
+    out["rsi_oversold"] = f["rsi"] < 30
+    out["rsi_trough"] = (f["rsi"] < f["rsi"].shift(1)) & (f["rsi"] < 35)
+    out["high_volume"] = (vol > 1.5 * vol.rolling(20).mean()) & ~vmiss
+    out["supertrend_bearish"] = f["st_dir"] == -1
+    out["supertrend_bullish"] = f["st_dir"] == 1
+    out["below_ichimoku_cloud"] = c < bot
+    out["above_ichimoku_cloud"] = c > top
+    out["macd_hist_negative"] = f["macd_hist"] < 0
+    out["macd_hist_positive"] = f["macd_hist"] > 0
+    out["below_kama"] = c < f["kama"]
+    out["above_kama"] = c > f["kama"]
+    return out.fillna(False).astype(bool)
 
 
 def event_flags(f: pd.DataFrame) -> pd.DataFrame:
@@ -55,6 +85,8 @@ def event_flags(f: pd.DataFrame) -> pd.DataFrame:
     e["macd_cross_down"] = (sh(f["macd_hist"]) >= 0) & (f["macd_hist"] < 0)
     e["ichimoku_tk_cross_down"] = (sh(f["ich_tenkan"]) >= sh(f["ich_kijun"])) & (f["ich_tenkan"] < f["ich_kijun"])
     e["ichimoku_cloud_breakdown"] = (sh(c) >= sh(cloud_bot)) & (c < cloud_bot)
+    e["bollinger_lower_touch"] = f["low"] <= f["bb_lower"]
+    e["bollinger_upper_touch"] = f["high"] >= f["bb_upper"]
     return e.fillna(False).astype(bool)
 
 
@@ -81,10 +113,14 @@ class DetectReversalParams(BaseModel):
     ticker: str = Field(description="BIST ticker, e.g. THYAO")
     as_of: date | None = Field(default=None, description="Analysis date; nothing after it is used.")
     direction: Literal["bullish", "bearish", "both"] = Field(default="bullish", description="Which kind of reversal events to detect.")
-    event_types: list[str] | None = Field(default=None, description=f"Subset of event types; default all for the direction. Valid: {', '.join(EVENT_TYPES)}")
+    event_types: list[str] | None = Field(default=None, description=f"Subset of event types; default all for the direction except bollinger_lower_touch/bollinger_upper_touch, which are used only when named. Valid: {', '.join(EVENT_TYPES)}")
     lookback_days: int = Field(default=1260, ge=60, le=3000, description="Trading days of history used for the strength statistics (~5 years default).")
     recent_days: int = Field(default=10, ge=1, le=60, description="Events within this many trading days of as_of are listed as 'recent'.")
     cooldown_days: int = Field(default=5, ge=0, le=30, description="Same-type events within this many bars of a previous one are dropped.")
+    start: date | None = Field(default=None, description="Statistics window start; when start or end is given it replaces lookback_days and every event in the window is listed.")
+    end: date | None = Field(default=None, description="Statistics window end (default and maximum: as_of).")
+    condition_sets: list[Annotated[list[ConditionName], Field(min_length=1, max_length=4)]] | None = Field(
+        default=None, max_length=6, description="Groups of event-day conditions (all must hold) reported as separate subgroups, e.g. [[rsi_trough, high_volume], [supertrend_bearish, below_ichimoku_cloud]].")
 
 
 @tool("detect_reversal_events", DetectReversalParams,
@@ -94,7 +130,7 @@ def detect_reversal_events(p: DetectReversalParams):
     as_of, w = store.resolve_as_of(p.as_of)
     bars = store.stock_bars(t, as_of)
     w += store.staleness_warnings(bars, as_of, t)
-    types = [k for k, (d, _) in EVENT_TYPES.items() if p.direction == "both" or d == p.direction]
+    types = [k for k in V10_TYPES if p.direction == "both" or EVENT_TYPES[k][0] == p.direction]
     if p.event_types:
         bad = [x for x in p.event_types if x not in EVENT_TYPES]
         if bad:
@@ -102,20 +138,47 @@ def detect_reversal_events(p: DetectReversalParams):
             raise ToolError("UNKNOWN_EVENT_TYPE", f"Unknown event types {bad}. Valid: {', '.join(EVENT_TYPES)}")
         types = [x for x in p.event_types]
     f = indicator_frame(bars)
+    if "volume_missing" in bars:
+        f["volume_missing"] = bars["volume_missing"].astype(bool)
     flags = event_flags(f)[types].apply(lambda s: apply_cooldown(s, p.cooldown_days))
     bench = store.index_bars(as_of)["close"]
     fwd = forward_returns(f["close"], bench)
-    lb = f.index[-p.lookback_days:] if len(f) > p.lookback_days else f.index
-    summary = {}
+    window = p.start is not None or p.end is not None
+    if window:
+        ws, we, wr = resolve_range(p.start, p.end, as_of, as_of - pd.DateOffset(years=5))
+        w += wr
+        lb = f.index[(f.index >= ws) & (f.index <= we)]
+    else:
+        lb = f.index[-p.lookback_days:] if len(f) > p.lookback_days else f.index
+    cond = condition_flags(f) if p.condition_sets else None
+    summary, events = {}, []
     for ty in types:
         idx = flags.index[flags[ty]].intersection(lb)
         row = {"direction": EVENT_TYPES[ty][0], "description": EVENT_TYPES[ty][1], "count": int(len(idx))}
+        st, sw = forward_window_stats(idx, fwd, list(HORIZONS), {"mean_excess_vs_xu100": "ex"}, label=f"{t} {ty}")
         for h in HORIZONS:
-            r = fwd.loc[idx, f"fwd_{h}"].dropna()
-            x = fwd.loc[idx, f"ex_{h}"].dropna()
-            row[f"h{h}"] = {"n": int(len(r)), "mean": r.mean() if len(r) else None, "median": r.median() if len(r) else None,
-                            "hit_rate": float((r > 0).mean()) if len(r) else None, "mean_excess_vs_xu100": x.mean() if len(x) else None}
+            row[f"h{h}"] = {k: st[f"h{h}"][k] for k in ("n", "mean", "median", "hit_rate", "mean_excess_vs_xu100", "n_excluded_incomplete")}
+        if window:
+            w += sw
+        if cond is not None:
+            row["by_condition_set"] = []
+            for cs in p.condition_sets:
+                sub = idx[cond.loc[idx, cs].all(axis=1).to_numpy()] if len(idx) else idx
+                cst, csw = forward_window_stats(sub, fwd, list(HORIZONS), {"mean_excess_vs_xu100": "ex"}, label=f"{t} {ty} [{' & '.join(cs)}]")
+                row["by_condition_set"].append({"conditions": cs, "count": int(len(sub)), **cst})
+                if window:
+                    w += [x for x in csw if x["code"] == "SMALL_SAMPLE"]
         summary[ty] = row
+        if window:
+            names = sorted({c for cs in (p.condition_sets or []) for c in cs})
+            for d in idx:
+                events.append({"date": d, "type": ty, "close": f.loc[d, "close"],
+                               "conditions": {c: bool(cond.loc[d, c]) for c in names} if cond is not None else {},
+                               "fwd_returns": {f"{h}d": fwd.loc[d, f"fwd_{h}"] for h in HORIZONS}})
+    if cond is not None and any("high_volume" in cs for cs in p.condition_sets) and "volume_missing" in f:
+        nm = int(f.loc[lb, "volume_missing"].sum())
+        if nm:
+            w.append(warn("VOLUME_MISSING_DAYS", f"{t}: {nm} days in the window have no volume; high_volume is False on those days"))
     recent_idx = f.index[-p.recent_days:]
     recent = []
     for ty in types:
@@ -126,10 +189,16 @@ def detect_reversal_events(p: DetectReversalParams):
     if len(f) < 60:
         w.append(warn("SHORT_HISTORY", f"{t}: only {len(f)} bars; statistics are unreliable"))
     low_n = [k for k, v in summary.items() if 0 < v["count"] < 5]
-    if low_n:
+    if low_n and not window:
         w.append(warn("SMALL_SAMPLE", f"Fewer than 5 historical occurrences for: {', '.join(low_n)}; statistics are anecdotal"))
     data = {"ticker": t, "lookback_bars": int(len(lb)), "entry_convention": "forward returns measured from the event-day close (signal known at close); a tradable backtest must enter at the next open",
             "recent_events": recent, "history_summary": summary}
+    if window:
+        events.sort(key=lambda x: (x["date"], x["type"]))
+        if len(events) > MAX_EVENTS:
+            w.append(warn("EVENTS_TRUNCATED", f"{len(events)} events in the window; only the latest {MAX_EVENTS} are listed (statistics use all)"))
+            events = events[-MAX_EVENTS:]
+        data.update(window=[ws, we], events=events)
     return data, w, {"as_of": as_of, "last_bar_date": bars.index.max(), "sources": ["prices_clean.parquet", "index_clean.parquet"]}
 
 

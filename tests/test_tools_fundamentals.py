@@ -70,6 +70,9 @@ def test_macro_uses_only_strictly_earlier_observations():
     for name, s in r["data"]["series"].items():
         if s:
             assert s["observation_date"] < "2024-03-20", name
-    assert any(w["code"] == "MACRO_INCOMPLETE" for w in r["warnings"])
-    assert "tcmb_policy_rate" in r["data"]["unavailable_series"]
+    if store.tcmb().empty:  # v1.1: TCMB series are reported once data/processed/macro_tcmb.parquet exists
+        assert any(w["code"] == "MACRO_INCOMPLETE" for w in r["warnings"])
+        assert "policy_rate" in r["data"]["unavailable_series"]
+    else:
+        assert r["data"]["unavailable_series"] == [] and r["data"]["series"]["policy_rate"]["observation_date"] < "2024-03-20"
     assert r["data"]["series"]["fed_target_upper"]["value"] == 5.5  # 2024-03: 5.25-5.50

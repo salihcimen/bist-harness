@@ -1,5 +1,5 @@
 {
- "schema_version": "1.0",
+ "schema_version": "1.1",
  "tools": [
   {
    "name": "get_stock_history",
@@ -344,7 +344,7 @@
        }
       ],
       "default": null,
-      "description": "Subset of event types; default all for the direction. Valid: rsi_oversold_exit, bollinger_lower_reclaim, supertrend_flip_up, kama_cross_up, macd_cross_up, ichimoku_tk_cross_up, ichimoku_cloud_breakout_up, rsi_overbought_exit, bollinger_upper_rejection, supertrend_flip_down, kama_cross_down, macd_cross_down, ichimoku_tk_cross_down, ichimoku_cloud_breakdown"
+      "description": "Subset of event types; default all for the direction except bollinger_lower_touch/bollinger_upper_touch, which are used only when named. Valid: rsi_oversold_exit, bollinger_lower_reclaim, supertrend_flip_up, kama_cross_up, macd_cross_up, ichimoku_tk_cross_up, ichimoku_cloud_breakout_up, rsi_overbought_exit, bollinger_upper_rejection, supertrend_flip_down, kama_cross_down, macd_cross_down, ichimoku_tk_cross_down, ichimoku_cloud_breakdown, bollinger_lower_touch, bollinger_upper_touch"
      },
      "lookback_days": {
       "default": 1260,
@@ -366,6 +366,66 @@
       "maximum": 30,
       "minimum": 0,
       "type": "integer"
+     },
+     "start": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Statistics window start; when start or end is given it replaces lookback_days and every event in the window is listed."
+     },
+     "end": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Statistics window end (default and maximum: as_of)."
+     },
+     "condition_sets": {
+      "anyOf": [
+       {
+        "items": {
+         "items": {
+          "enum": [
+           "rsi_oversold",
+           "rsi_trough",
+           "high_volume",
+           "supertrend_bearish",
+           "supertrend_bullish",
+           "below_ichimoku_cloud",
+           "above_ichimoku_cloud",
+           "macd_hist_negative",
+           "macd_hist_positive",
+           "below_kama",
+           "above_kama"
+          ],
+          "type": "string"
+         },
+         "maxItems": 4,
+         "minItems": 1,
+         "type": "array"
+        },
+        "maxItems": 6,
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Groups of event-day conditions (all must hold) reported as separate subgroups, e.g. [[rsi_trough, high_volume], [supertrend_bearish, below_ichimoku_cloud]]."
      }
     },
     "required": [
@@ -444,8 +504,33 @@
    "input_schema": {
     "properties": {
      "sector": {
-      "description": "Peer group name (e.g. Financials, Retail_Consumer, Energy_Utilities, Metals_Mining, Chemicals, Auto_Durables, Construction_Materials, Transport, Telecom, Healthcare, Defense_Tech) or a ticker (its group is used).",
-      "type": "string"
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Peer group name (e.g. Financials, Retail_Consumer, Energy_Utilities, Metals_Mining, Chemicals, Auto_Durables, Construction_Materials, Transport, Telecom, Healthcare, Defense_Tech) or a ticker (its group is used)."
+     },
+     "tickers": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "maxItems": 30,
+        "minItems": 1,
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Explicit peer list (e.g. the stocks named in the question); overrides `sector`."
      },
      "horizon_days": {
       "default": 10,
@@ -468,8 +553,112 @@
       "description": "Analysis date; nothing after it is used."
      }
     },
+    "type": "object"
+   }
+  },
+  {
+   "name": "test_catch_up_history",
+   "description": "History of similar lags: every past day the ticker trailed the peer median by at least the given gap over L days, and whether the gap narrowed or closed within 5/10/20 days (hit rate, false-positive rate, excess vs XU100, split by sector strength). Completed windows only.",
+   "input_schema": {
+    "properties": {
+     "ticker": {
+      "description": "BIST ticker whose lag vs. its peers is studied, e.g. MAVI",
+      "type": "string"
+     },
+     "peers": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "maxItems": 29,
+        "minItems": 1,
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Explicit peer list (default: the ticker's peer group, ticker excluded)."
+     },
+     "lookback_days": {
+      "default": 20,
+      "description": "L: trading days over which the lag is measured.",
+      "maximum": 60,
+      "minimum": 5,
+      "type": "integer"
+     },
+     "horizons": {
+      "default": [
+       5,
+       10,
+       20
+      ],
+      "description": "Forward horizons (trading days) at which closing is checked.",
+      "items": {
+       "type": "integer"
+      },
+      "maxItems": 5,
+      "minItems": 1,
+      "type": "array"
+     },
+     "min_lag_gap": {
+      "anyOf": [
+       {
+        "maximum": 1,
+        "minimum": 0,
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Lag threshold as a fraction (0.05 = 5 points behind the peer median); default: the ticker's current L-day lag."
+     },
+     "start": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "First event date (default: 5 years before end)."
+     },
+     "end": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Last event date (default and maximum: as_of)."
+     },
+     "as_of": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Analysis date; nothing after it is used."
+     }
+    },
     "required": [
-     "sector"
+     "ticker"
     ],
     "type": "object"
    }
@@ -484,11 +673,12 @@
       "type": "string"
      },
      "pattern": {
-      "description": "weekday_return: return on `weekday` vs other days. bounce_after_down_day: next-day return after a down `weekday`. bounce_after_n_down_days: next-day return after n consecutive down closes.",
+      "description": "weekday_return: return on `weekday` vs other days. bounce_after_down_day: next-day return after a down `weekday`. bounce_after_n_down_days: next-day return after n consecutive down closes. weekday_sequence: in calendar weeks where every `down_days` day closed down, the cumulative return of `up_days` in the same week.",
       "enum": [
        "weekday_return",
        "bounce_after_down_day",
-       "bounce_after_n_down_days"
+       "bounce_after_n_down_days",
+       "weekday_sequence"
       ],
       "type": "string"
      },
@@ -518,6 +708,54 @@
       "minimum": 2,
       "type": "integer"
      },
+     "down_days": {
+      "anyOf": [
+       {
+        "items": {
+         "enum": [
+          "MON",
+          "TUE",
+          "WED",
+          "THU",
+          "FRI"
+         ],
+         "type": "string"
+        },
+        "maxItems": 4,
+        "minItems": 1,
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "weekday_sequence: days that must all close down, e.g. [MON, TUE, WED]."
+     },
+     "up_days": {
+      "anyOf": [
+       {
+        "items": {
+         "enum": [
+          "MON",
+          "TUE",
+          "WED",
+          "THU",
+          "FRI"
+         ],
+         "type": "string"
+        },
+        "maxItems": 4,
+        "minItems": 1,
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "weekday_sequence: days whose cumulative return is the outcome, e.g. [THU, FRI]."
+     },
      "start": {
       "anyOf": [
        {
@@ -543,6 +781,26 @@
       ],
       "default": null,
       "description": "Period end (default and maximum: as_of)."
+     },
+     "oos_start": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Optional out-of-sample start: in-sample = [start, oos_start), out-of-sample = [oos_start, end], each with full statistics (replaces the 70/30 split)."
+     },
+     "cost_bps_round_trip": {
+      "default": 30,
+      "description": "weekday_sequence: round-trip trading cost in basis points subtracted for the net mean.",
+      "maximum": 500,
+      "minimum": 0,
+      "type": "number"
      },
      "as_of": {
       "anyOf": [
@@ -643,8 +901,111 @@
    }
   },
   {
+   "name": "analyze_disclosure_reactions",
+   "description": "For every quarterly report first published on KAP in [start, end]: metric values and change vs. the previous quarter (improving flag), and the 1/5/20-day stock return, abnormal return vs XU100 and vs the sector median after the publication; summary of improving vs deteriorating quarters. Incomplete windows are flagged, never filled. Association only.",
+   "input_schema": {
+    "properties": {
+     "ticker": {
+      "description": "BIST ticker, e.g. TUPRS",
+      "type": "string"
+     },
+     "start": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "First KAP publication date included (default: 3 years before end). Filter is on the publication date, not the quarter end."
+     },
+     "end": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Last KAP publication date included (default and maximum: as_of)."
+     },
+     "metrics": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "maxItems": 4,
+        "minItems": 1,
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Ratio metrics to report (default industrial: ebitda_margin_q, net_debt_ebitda; bank: roe_ttm, nii_assets; insurer: roa_ttm)."
+     },
+     "horizons": {
+      "default": [
+       1,
+       5,
+       20
+      ],
+      "description": "Reaction horizons in trading days (reaction day = day 1).",
+      "items": {
+       "type": "integer"
+      },
+      "maxItems": 4,
+      "minItems": 1,
+      "type": "array"
+     },
+     "peers": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "maxItems": 29,
+        "minItems": 1,
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Peers for the sector-relative reaction (default: the ticker's peer group)."
+     },
+     "as_of": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Analysis date; reports not yet public and prices after it are never used."
+     }
+    },
+    "required": [
+     "ticker"
+    ],
+    "type": "object"
+   }
+  },
+  {
    "name": "get_macro_context",
-   "description": "Market-based macro context at as_of (D-1 rule): USD/TRY, EUR/TRY, DXY, VIX, US 10Y, Fed funds and target range, Brent, gold, S&P 500 with changes; reports which macro series are NOT yet available (TCMB policy rate, TUIK CPI).",
+   "description": "Macro context at as_of (D-1 rule): USD/TRY, EUR/TRY, DXY, VIX, US 10Y, Fed funds and target range, Brent, gold, S&P 500, and TCMB series (CBRT USD/TRY, policy-rate proxy, CPI y/y by publication date) with changes; optional [start, end] range statistics per series.",
    "input_schema": {
     "properties": {
      "as_of": {
@@ -658,7 +1019,7 @@
        }
       ],
       "default": null,
-      "description": "Analysis date. Values are taken from the last observation STRICTLY BEFORE this date (global closes happen after the BIST close)."
+      "description": "Analysis date. Values are taken from the last observation STRICTLY BEFORE this date (global closes happen after the BIST close; monthly CPI only after its publication date)."
      },
      "lookback_days": {
       "default": 20,
@@ -666,8 +1027,148 @@
       "maximum": 250,
       "minimum": 5,
       "type": "integer"
+     },
+     "series": {
+      "anyOf": [
+       {
+        "items": {
+         "enum": [
+          "usdtry",
+          "eurtry",
+          "dxy",
+          "brent",
+          "gold",
+          "sp500",
+          "vix",
+          "us10y",
+          "fed_funds_effective",
+          "fed_target_upper",
+          "fed_target_lower",
+          "usdtry_tcmb",
+          "policy_rate",
+          "cpi_yoy"
+         ],
+         "type": "string"
+        },
+        "maxItems": 14,
+        "minItems": 1,
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Subset of series (default: all). TCMB: usdtry_tcmb (CBRT USD/TRY), policy_rate (CBRT funding rate), cpi_yoy (CPI y/y %)."
+     },
+     "start": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Optional period start: adds per-series start/end value, change, min/max and observation count over [start, end]."
+     },
+     "end": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Period end for the range figures (default and maximum: as_of)."
      }
     },
+    "type": "object"
+   }
+  },
+  {
+   "name": "analyze_macro_sensitivity",
+   "description": "Historical association between a stock and one macro factor over [start, end]: correlation, beta, mean stock return when the factor rose vs fell (and vs XU100), per-year stability and the same figures for XU100 (stock-specific or market-wide). D-1 aligned; association only, no forecast.",
+   "input_schema": {
+    "properties": {
+     "ticker": {
+      "description": "BIST ticker, e.g. EREGL",
+      "type": "string"
+     },
+     "factor": {
+      "description": "Macro factor: usdtry/eurtry/brent/gold/dxy/sp500 as % change; vix, us10y, policy_rate (CBRT), cpi_yoy (CPI y/y) as level change.",
+      "enum": [
+       "usdtry",
+       "eurtry",
+       "policy_rate",
+       "cpi_yoy",
+       "brent",
+       "gold",
+       "vix",
+       "dxy",
+       "sp500",
+       "us10y"
+      ],
+      "type": "string"
+     },
+     "start": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Period start (default: 3 years before end)."
+     },
+     "end": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Period end (default and maximum: as_of)."
+     },
+     "frequency": {
+      "default": "weekly",
+      "description": "Return period.",
+      "enum": [
+       "weekly",
+       "monthly"
+      ],
+      "type": "string"
+     },
+     "as_of": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "description": "Analysis date; nothing after it is used."
+     }
+    },
+    "required": [
+     "ticker",
+     "factor"
+    ],
     "type": "object"
    }
   },
@@ -828,7 +1329,7 @@
           "type": "string"
          },
          "trigger_events": {
-          "description": "Bullish events that trigger an entry. Valid: rsi_oversold_exit, bollinger_lower_reclaim, supertrend_flip_up, kama_cross_up, macd_cross_up, ichimoku_tk_cross_up, ichimoku_cloud_breakout_up",
+          "description": "Bullish events that trigger an entry. Valid: rsi_oversold_exit, bollinger_lower_reclaim, supertrend_flip_up, kama_cross_up, macd_cross_up, ichimoku_tk_cross_up, ichimoku_cloud_breakout_up, bollinger_lower_touch",
           "items": {
            "type": "string"
           },
@@ -1249,6 +1750,18 @@
      "type": "integer",
      "required": false,
      "default": 5
+    },
+    "start": {
+     "type": "date",
+     "required": false
+    },
+    "end": {
+     "type": "date",
+     "required": false
+    },
+    "condition_sets": {
+     "type": "list[list[rsi_oversold|rsi_trough|high_volume|supertrend_bearish|supertrend_bullish|below_ichimoku_cloud|above_ichimoku_cloud|macd_hist_negative|macd_hist_positive|below_kama|above_kama]]",
+     "required": false
     }
    }
   },
@@ -1297,12 +1810,60 @@
    "params": {
     "sector": {
      "type": "string",
-     "required": true
+     "required": false
+    },
+    "tickers": {
+     "type": "list[string]",
+     "required": false
     },
     "horizon_days": {
      "type": "integer",
      "required": false,
      "default": 10
+    },
+    "as_of": {
+     "type": "date",
+     "required": false
+    }
+   }
+  },
+  {
+   "name": "test_catch_up_history",
+   "description": "History of similar lags: every past day the ticker trailed the peer median by at least the given gap over L days, and whether the gap narrowed or closed within 5/10/20 days (hit rate, false-positive rate, excess vs XU100, split by sector strength)",
+   "params": {
+    "ticker": {
+     "type": "string",
+     "required": true
+    },
+    "peers": {
+     "type": "list[string]",
+     "required": false
+    },
+    "lookback_days": {
+     "type": "integer",
+     "required": false,
+     "default": 20
+    },
+    "horizons": {
+     "type": "list[integer]",
+     "required": false,
+     "default": [
+      5,
+      10,
+      20
+     ]
+    },
+    "min_lag_gap": {
+     "type": "number",
+     "required": false
+    },
+    "start": {
+     "type": "date",
+     "required": false
+    },
+    "end": {
+     "type": "date",
+     "required": false
     },
     "as_of": {
      "type": "date",
@@ -1319,7 +1880,7 @@
      "required": true
     },
     "pattern": {
-     "type": "weekday_return|bounce_after_down_day|bounce_after_n_down_days",
+     "type": "weekday_return|bounce_after_down_day|bounce_after_n_down_days|weekday_sequence",
      "required": true
     },
     "weekday": {
@@ -1331,6 +1892,14 @@
      "required": false,
      "default": 3
     },
+    "down_days": {
+     "type": "list[MON|TUE|WED|THU|FRI]",
+     "required": false
+    },
+    "up_days": {
+     "type": "list[MON|TUE|WED|THU|FRI]",
+     "required": false
+    },
     "start": {
      "type": "date",
      "required": false
@@ -1338,6 +1907,15 @@
     "end": {
      "type": "date",
      "required": false
+    },
+    "oos_start": {
+     "type": "date",
+     "required": false
+    },
+    "cost_bps_round_trip": {
+     "type": "number",
+     "required": false,
+     "default": 30
     },
     "as_of": {
      "type": "date",
@@ -1383,8 +1961,47 @@
    }
   },
   {
+   "name": "analyze_disclosure_reactions",
+   "description": "For every quarterly report first published on KAP in [start, end]: metric values and change vs",
+   "params": {
+    "ticker": {
+     "type": "string",
+     "required": true
+    },
+    "start": {
+     "type": "date",
+     "required": false
+    },
+    "end": {
+     "type": "date",
+     "required": false
+    },
+    "metrics": {
+     "type": "list[string]",
+     "required": false
+    },
+    "horizons": {
+     "type": "list[integer]",
+     "required": false,
+     "default": [
+      1,
+      5,
+      20
+     ]
+    },
+    "peers": {
+     "type": "list[string]",
+     "required": false
+    },
+    "as_of": {
+     "type": "date",
+     "required": false
+    }
+   }
+  },
+  {
    "name": "get_macro_context",
-   "description": "Market-based macro context at as_of (D-1 rule): USD/TRY, EUR/TRY, DXY, VIX, US 10Y, Fed funds and target range, Brent, gold, S&P 500 with changes; reports which macro series are NOT yet available (TCMB policy rate, TUIK CPI)",
+   "description": "Macro context at as_of (D-1 rule): USD/TRY, EUR/TRY, DXY, VIX, US 10Y, Fed funds and target range, Brent, gold, S&P 500, and TCMB series (CBRT USD/TRY, policy-rate proxy, CPI y/y by publication date) with changes; optional [start, end] range statistics per series",
    "params": {
     "as_of": {
      "type": "date",
@@ -1394,6 +2011,49 @@
      "type": "integer",
      "required": false,
      "default": 20
+    },
+    "series": {
+     "type": "list[usdtry|eurtry|dxy|brent|gold|sp500|vix|us10y|fed_funds_effective|fed_target_upper|fed_target_lower|usdtry_tcmb|policy_rate|cpi_yoy]",
+     "required": false
+    },
+    "start": {
+     "type": "date",
+     "required": false
+    },
+    "end": {
+     "type": "date",
+     "required": false
+    }
+   }
+  },
+  {
+   "name": "analyze_macro_sensitivity",
+   "description": "Historical association between a stock and one macro factor over [start, end]: correlation, beta, mean stock return when the factor rose vs fell (and vs XU100), per-year stability and the same figures for XU100 (stock-specific or market-wide)",
+   "params": {
+    "ticker": {
+     "type": "string",
+     "required": true
+    },
+    "factor": {
+     "type": "usdtry|eurtry|policy_rate|cpi_yoy|brent|gold|vix|dxy|sp500|us10y",
+     "required": true
+    },
+    "start": {
+     "type": "date",
+     "required": false
+    },
+    "end": {
+     "type": "date",
+     "required": false
+    },
+    "frequency": {
+     "type": "weekly|monthly",
+     "required": false,
+     "default": "weekly"
+    },
+    "as_of": {
+     "type": "date",
+     "required": false
     }
    }
   },
@@ -1610,5 +2270,5 @@
    }
   }
  },
- "schema_hash": "9f9ab40fd9c845f0"
+ "schema_hash": "dd5d68940df2c6a6"
 }
